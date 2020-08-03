@@ -1,0 +1,197 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+ul {
+    white-space: nowrap;
+    margin: 0;
+    padding: 0;
+}
+
+ul li {
+    outline: none;
+    display: inline-block;
+    list-style-type: none;
+    margin: 0;
+}
+
+/*弹出框*/
+#dialog-wrap {
+    display: none;
+}
+#dialog {
+    box-sizing: border-box;
+    padding: 16px;
+    background-color: #191970;
+    border: 1px solid #4682B4;
+}
+.triangle {
+    width: 0;
+    height: 0;
+    overflow:hidden;   /*处理IE6的最小高度问题*/
+    border-width: 20px;
+    border-style: solid dashed dashed dashed;  /*IE6下, 设置余下三条边的border-style为dashed,即可达到透明的效果，否则会有黑边*/
+    border-color: #191970 transparent transparent  transparent;
+}
+
+#dialog tbody {
+    text-align: center;
+    color: #fff;
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.dialog-table {
+    border-collapse: collapse;
+}
+
+.dialog-table th, .dialog-table td {
+    padding: 6px;
+    border: 1px solid #5F9EA0;
+}
+
+.detail a {
+    color: #fff;
+    text-decoration: none;
+}
+
+.detail a:hover {
+    color: #5F9EA0;
+}
+
+
+/*时间轴*/
+.mydate {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    background-color: #18264D;
+    opacity: 0.7;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.date-left {
+    width: 20%;
+    display: inline-block;
+    text-align: right;
+}
+.date-left .date-info {
+    margin-right: 10%;
+    background-color: rgba(22, 208, 255, 0.18);
+    border: 1px solid rgba(0, 144, 144, 1);
+    font-size: 18px;
+    font-family: Microsoft YaHei;
+    font-weight: 400;
+    color: rgba(153, 255, 255, 1);
+    line-height: 37px;
+    outline: none;
+    box-sizing: border-box;
+}
+.date-info::-webkit-input-placeholder {
+    color: #99ffff;
+}
+.date-info::-moz-placeholder {
+    color: #99ffff;
+}
+.date-info::-ms-input-placeholder {
+    color: #99ffff;
+}
+
+.date-right {
+    width: 78%;
+    display: inline-block;
+}
+
+.cx-time-main {
+    width: 100%;
+    height: 100px;
+}
+
+.cx-time-main > span {
+    width: 20px;
+    height: 100px;
+    line-height: 100px;
+    float: left;
+    font-size: 30px;
+    font-weight: 600;
+    color: rgb(18, 175, 255);
+    cursor: pointer;
+    font-family: '宋体'
+}
+
+.cx-time-box {
+    float: left;
+    width: calc(100% - 42px);
+    height: 100px;
+    margin: 0;
+    padding: 0 10px;
+    overflow: hidden;
+    box-sizing: border-box;
+}
+
+.cx-time-box ul {
+    height: 100px;
+}
+
+.cx-round-box {
+    position: relative;
+    width: 38px;
+    height: 100%;
+}
+
+.cx-time-top {
+    position: absolute;
+    left: 4px;
+    bottom: 40%;
+    width: 30px;
+    min-height: 40px;
+    height: auto;
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+.cx-time-bottom {
+    position: absolute;
+    top: 40%;
+    width: 40px;
+    min-height: 20px;
+    height: auto;
+    font-size: 14px;
+    cursor: pointer;
+    background-image:-webkit-linear-gradient(80deg, #7A88FF 0, #7AFFAF 100%);
+    -webkit-background-clip:text;
+    -webkit-text-fill-color:transparent;
+}
+
+.cx-time-line {
+    position: relative;
+    width: 150px;
+    height: 100%;
+}
+
+.cx-time-line:after {
+    position: absolute;
+    content: '';
+    width: 100%;
+    height: 2px;
+    top: 50%;
+    background: linear-gradient(80deg, #7A88FF 0, #7AFFAF 100%);
+}
+
+.cx-time-bottom:hover, .cx-time-active .cx-time-bottom {
+    color: #7AFFAF;
+}
+
+.cx-time-active .cx-time-top {
+    background-image: url('../images/point.png');
+    background-repeat: no-repeat;
+    -webkit-background-size: 100% 100%;
+    background-size: 100% 100%;
+}

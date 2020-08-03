@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>3d-force-graph</title>
+    <link rel="stylesheet" href="./css/index.css">
+</head>
+<body>
+<div id="box"></div>
+<div id="dialog-wrap">
+    <div id="dialog">
+        <table class="dialog-table">
+            <tbody>
+            <tr>
+                <th>系统编号</th>
+                <th>系统名称</th>
+                <th>使用单位</th>
+                <th>委办局</th>
+                <th>事件点</th>
+                <th>操作</th>
+            </tr>
+            <tr>
+                <td>A0150201</td>
+                <td>人口大数据分析系统</td>
+                <td>北京市经济信息中心</td>
+                <td>北京市发展和改革委员会</td>
+                <td>3</td>
+                <td class="detail"><a href="javascript:;">查看运维详情</a></td>
+            </tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="triangle"></div>
+</div>
+<div class="mydate">
+    <div class="date-left">
+        <input type="date" class="date-info"/>
+    </div>
+    <div class="date-right">
+        <div class="cx-time-main" id="cxTime">
+            <span><</span>
+            <div class="cx-time-box"><ul></ul></div>
+            <span>></span>
+        </div>
+    </div>
+</div>
+<script src="./js/3d-force-graph.min.js"></script>
+<script src="./js/three.min.js"></script>
+<script src="./js/three-spritetext.min.js"></script>
+<script src="./js/jquery-3.3.1.min.js"></script>
+<script>
+    // id source target字段必需
+    let data = {
+        nodes: [...Array(100).keys()].map(i => ({
+            id: i,
+            num: Math.floor(Math.random() * 1000),
+            status: ['red', 'green', 'blue'][Math.floor(Math.random() * 3)]
+        })),
+        links: [...Array(100).keys()].filter(id => id).map(id => ({
+            source: id,
+            target: Math.round(Math.random() * (id - 1))
+        }))
+    };
+
+    // 弹出框
+    let dialog = document.getElementById('dialog-wrap')
+
+    // 光照材质  MeshBasicMaterial   MeshLambertMaterial
+    function material(node, red, green, blue, opacity) {
+        return new THREE.MeshPhongMaterial({
+            color: node.status === 'red' ? red : (node.status === 'green' ? green : blue),
+            depthWrite: false,
+            transparent: true,
+            opacity: opacity,
+            side: THREE.DoubleSide,
+            specular: 0x333333,  // 高光颜色
+            shininess: 6   // 光照强度的系数
+        });
+    }
+
+    const Graph = ForceGraph3D()(document.getElementById('box'))
+        .width(window.innerWidth)
+        .height(window.innerHeight)
+        .graphData(data)
+        .backgroundColor('#0a1247')
+        .showNavInfo(false)
+        .linkColor(() => 'rgba(30,144,255, 0.8)')
+        .linkWidth(1)
+        .nodeLabel(node => `<p style="color:#0f0;">${node.num}<p>`)
+        .nodeThreeObject(node => {
+            const topSphereMesh = new THREE.Mesh(
+                new THREE.SphereBufferGeometry(10, 50, 50, 0, Math.PI * 2, 0, Math.PI),
+                material(node, '#A52A2A', '#7FFFAA', '#00BFFF', 0.2)
+            );
+            const bottomSphereMesh = new THREE.Mesh(
+                new THREE.SphereBufferGeometry(10, 50, 50, 0, Math.PI * 2, 0, Math.PI / 180 * 90),   // 满溢情况只需更改最后一个参数，此处是90度
+                material(node, '#A60B1A', '#7CFC00', '#1E83B4', 0.6)
+            )
+            bottomSphereMesh.rotateX(-Math.PI / 180 * 160);  // 下半球体倾斜角度
+
+            // 显示文字
+            const sprite = new SpriteText(node.num);
+            sprite.color = node.status === 'red' ? '#f00' : '#fff';
+            sprite.textHeight = 6;
+            topSphereMesh.add(sprite);
+
+            const personGroup = new THREE.Group();
+            return personGroup.add(topSphereMesh, bottomSphereMesh);
+        })
+        .onNodeClick((node, event) => {
+            console.log(node)
+            console.log(event)
+            dialog.style.display = 'block'
+            dialog.style.position = 'absolute'
+            dialog.style.top = event.y < 150 ? event.y + 40 + 'px' : event.y - 130 + 'px'
+            dialog.style.left = event.x < 300 ? event.x + 'px' : event.x - 300 + 'px'
+            $('.triangle').css({'position':'absolute', 'left':'280px'})
+        })
+        .onNodeRightClick((node, event) => {
+            dialog.style.display = 'none'
+        })
+        .onNodeDrag((node, translate) => {
+            dialog.style.display = 'none'
+        })
+        .onBackgroundClick(event => {
+            dialog.style.display = 'none'
+        })
+        .dagMode('radialin')    // 布局径向向内
+        .dagLevelDistance(20)   // 节点距离
+
+    Graph.d3Force('charge').strength(-120);     // 节点之间的距离，数越小距离越大
+    Graph.cameraPosition({x: 0, y: 0, z: 400});     // 相机位置，更改z轴位置即可调整镜头远近距离
+
+    // 环境光，没有特定方向的光源，能整体均匀改变物体表面的明暗效果
+    const ambient = new THREE.AmbientLight(0x696969);
+    Graph.scene().add(ambient);
+    // 点光源
+    const point = new THREE.PointLight(0xF0F8FF);
+    point.position.set(400, 300, 500); //点光源位置
+    Graph.scene().add(point);
+
+    // 时间轴
+    let timeList = [
+        {name: '00:00', time: '00:00'},
+        {name: '02:00', time: '02:00'},
+        {name: '04:00', time: '04:00'},
+        {name: '06:00', time: '06:00'},
+        {name: '08:00', time: '08:00'},
+        {name: '10:00', time: '10:00'},
+        {name: '12:00', time: '12:00'},
+        {name: '14:00', time: '14:00'},
+        {name: '16:00', time: '16:00'},
+        {name: '18:00', time: '18:00'},
+        {name: '20:00', time: '20:00'},
+        {name: '22:00', time: '22:00'}
+    ];
+
+    let initIndex = 4;  // 设置初始时间索引
+
+    $(function init() {
+        let html = '';
+        $.each(timeList, function (index, item) {
+            html += `<li class="cx-round-box cx-round-box${index}">
+					<div class="cx-time-top"></div>
+					<div class="cx-time-bottom" data-index="${index}">${item.time}</div></li>`
+            if (index !== timeList.length - 1) {
+                html += `<li class="cx-time-line" style="width: 100px;"></li>`;
+            }
+        });
+        $('#cxTime ul').empty().append(html);
+        $('#cxTime ul .cx-time-bottom').on('click', function () {
+            initIndex = $(this).data('index');
+            timeAxisMove(0);
+        })
+        timeAxisMove(0);
+        $('#cxTime>span:first').on('click', function () {
+            timeAxisMove(-1);
+        });
+        $('#cxTime>span:last').on('click', function () {
+            timeAxisMove(1);
+        })
+    })
+
+    //点击两边
+    function timeAxisMove(num) {
+        initIndex += num;
+        if (initIndex < 0) {
+            initIndex = timeList.length - 1;
+        }
+        if (initIndex > timeList.length - 1) {
+            initIndex = 0;
+        }
+        timeAxisRoll();
+        timeAxisActive(initIndex);
+    }
+
+    // 点击节点
+    function timeAxisRoll() {
+        let width = 140;
+        let firstIndex = initIndex - 1 < 0 ? 0 : initIndex - 1;
+        let roll = -(firstIndex* width);
+        let widthBox = $('.cx-time-box').width();//时间轴宽度盒子总宽度
+        let widthBox1 = Math.abs(timeList.length * width); //实际总宽度
+        if(widthBox > widthBox1){
+            return false;
+        }
+        let i = parseInt(widthBox/width);//显示时间轴条数
+
+        if(initIndex + i >= timeList.length){
+            roll =  -((timeList.length - 1 - i) * width);
+        }
+
+        $('#cxTime ul li').animate({
+            'left': roll + 'px'
+        });
+    }
+
+    // 激活事件
+    function timeAxisActive(num) {
+        $('.cx-round-box').removeClass('cx-time-active');
+        $('.cx-round-box' + num).addClass('cx-time-active');
+        let selectVal = $('.cx-round-box' + num).children('.cx-time-bottom').text()
+        console.log(selectVal)  // 08:00
+    }
+
+    // 给日期选择框赋初值
+    $(function(){
+        let date = new Date();
+        let year = date.getFullYear();
+        let month = date.getMonth() + 1;
+        let day = date.getDate();
+        if (month < 10) month = "0" + month;
+        if (day < 10) day = "0" + day;
+        let time = year + "-" + month + "-" + day;
+        $('.date-info').val(time);
+    });
+    // 监听日期选择框
+    $('.date-info').bind('change', () => {
+        let datei = $('.date-info').val()
+        console.log(datei)  // 2020-07-31
+    })
+
+    // 将日期和时间拼凑起来获得最终值，监听这个值去请求ajax获取data就能动态渲染页面。
+
+</script>
+</body>
+</html>
