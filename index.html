@@ -1,10 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>3d-force-graph</title>
     <link rel="stylesheet" href="./css/index.css">
 </head>
+
 <body>
 <div id="box"></div>
 <div id="dialog-wrap">
@@ -34,27 +36,31 @@
 </div>
 <div class="mydate">
     <div class="date-left">
-        <input type="date" class="date-info"/>
+        <input type="date" class="date-info" />
     </div>
     <div class="date-right">
         <div class="cx-time-main" id="cxTime">
-            <span><</span>
-            <div class="cx-time-box"><ul></ul></div>
+                <span>
+                    <</span> <div class="cx-time-box">
+            <ul></ul>
+        </div>
             <span>></span>
         </div>
     </div>
 </div>
 <script src="./js/3d-force-graph.min.js"></script>
 <script src="./js/three.min.js"></script>
+<script src="./js/OrbitControls.js"></script>
 <script src="./js/three-spritetext.min.js"></script>
 <script src="./js/jquery-3.3.1.min.js"></script>
 <script>
     // id source target字段必需
     let data = {
         nodes: [...Array(100).keys()].map(i => ({
-            id: i,
-            num: Math.floor(Math.random() * 1000),
-            status: ['red', 'green', 'blue'][Math.floor(Math.random() * 3)]
+            id: i, // 节点id
+            overflow: Math.floor(Math.random() * 180), // 满溢值，角度
+            num: Math.floor(Math.random() * 1000), // 节点数量
+            status: ['red', 'green', 'blue'][Math.floor(Math.random() * 3)] // 节点状态，颜色值
         })),
         links: [...Array(100).keys()].filter(id => id).map(id => ({
             source: id,
@@ -62,19 +68,62 @@
         }))
     };
 
+    data.links.forEach(link => {
+        const a = data.nodes[link.source];
+        const b = data.nodes[link.target];
+        !a.neighbors && (a.neighbors = []);
+        !b.neighbors && (b.neighbors = []);
+        a.neighbors.push(b);
+        b.neighbors.push(a);
+
+        !a.links && (a.links = []);
+        !b.links && (b.links = []);
+        a.links.push(link);
+        b.links.push(link);
+    });
+
+    const highlightNodes = new Set();
+    const highlightLinks = new Set();
+    let hoverNode = null;
+
     // 弹出框
     let dialog = document.getElementById('dialog-wrap')
 
-    // 光照材质  MeshBasicMaterial   MeshLambertMaterial
-    function material(node, red, green, blue, opacity) {
+    // 材质对象  MeshBasicMaterial   MeshLambertMaterial  MeshPhongMaterial
+    function material1(node, red, green, blue) {
         return new THREE.MeshPhongMaterial({
             color: node.status === 'red' ? red : (node.status === 'green' ? green : blue),
             depthWrite: false,
+            depthTest: false,
+            side: THREE.FrontSide, // DoubleSide  BackSide  FrontSide
+            // transparent: true,
+            // opacity: 0.8
+        });
+    }
+
+    function material2(node) {
+        let canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 256;
+        let ctx = canvas.getContext('2d');
+        let gradient = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 0, canvas.width /
+            2, canvas.height / 2, canvas.width / 2);
+        gradient.addColorStop(0, 'rgba(0,0,0,.1)'); //内圈颜色
+        let colors = {
+            'red': 'rgba(255,0,0,.5)',
+            'green': 'rgba(0,255,0,.5)',
+            'blue': 'rgba(0,255,255,.5)'
+        }
+        gradient.addColorStop(1, colors[node.status]); //外圈颜色
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height); //将一个画布使用圆形渐变对象进行填充
+        let shadowTexture = new THREE.CanvasTexture(canvas);
+
+        return new THREE.MeshBasicMaterial({
+            map: shadowTexture,
             transparent: true,
-            opacity: opacity,
-            side: THREE.DoubleSide,
-            specular: 0x333333,  // 高光颜色
-            shininess: 6   // 光照强度的系数
+            depthWrite: false,
+            side: THREE.BackSide
         });
     }
 
@@ -85,36 +134,156 @@
         .backgroundColor('#0a1247')
         .showNavInfo(false)
         .linkColor(() => 'rgba(30,144,255, 0.8)')
-        .linkWidth(1)
+        // .linkWidth(1)
+        .linkWidth(link => highlightLinks.has(link) ? 4 : 1)
+        .linkDirectionalParticles(link => highlightLinks.has(link) ? 4 : 0)
+        .linkDirectionalParticleWidth(4)
+        .linkDirectionalParticleResolution(8)
+
         .nodeLabel(node => `<p style="color:#0f0;">${node.num}<p>`)
         .nodeThreeObject(node => {
-            const topSphereMesh = new THREE.Mesh(
-                new THREE.SphereBufferGeometry(10, 50, 50, 0, Math.PI * 2, 0, Math.PI),
-                material(node, '#A52A2A', '#7FFFAA', '#00BFFF', 0.2)
+            const vertexShader = [
+                'varying vec3 vVertexWorldPosition;',
+                'varying vec3 vVertexNormal;',
+                'varying vec4 vFragColor;',
+                'void main(){',
+                '    vVertexNormal = normalize(normalMatrix * normal);', //将法线转换到视图坐标系中
+                '    vVertexWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;', //将顶点转换到世界坐标系中
+                '    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+                '}'
+            ].join('\n');
+
+            // vVertexNormal视图坐标系中点的法向量
+            // viewCameraToVertex视图坐标系中点到摄像机的距离向量
+            // dot点乘得到它们的夹角的cos值
+            // 从中心向外面角度越来越小（从钝角到锐角）从cos函数也可以知道这个值由负变正，不透明度最终从低到高
+            const fragmentShader = [
+                'uniform vec3 glowColor;',
+                'uniform float coefficient;',
+                'uniform float power;',
+                'varying vec3 vVertexNormal;',
+                'varying vec3 vVertexWorldPosition;',
+                'varying vec4 vFragColor;',
+                'void main(){',
+                '    vec3 worldCameraToVertex = vVertexWorldPosition - cameraPosition;', //世界坐标系中从相机位置到顶点位置的距离
+                '    vec3 viewCameraToVertex = (viewMatrix * vec4(worldCameraToVertex, 0.0)).xyz;', //视图坐标系中从相机位置到顶点位置的距离
+                '    viewCameraToVertex = normalize(viewCameraToVertex);', //规一化
+                '    float intensity = pow(coefficient + dot(vVertexNormal, viewCameraToVertex), power);',
+                '    gl_FragColor = vec4(glowColor, intensity);',
+                '}'
+            ].join('\n');
+
+            // 透明度递减
+            const haloMesh = new THREE.Mesh(
+                new THREE.SphereBufferGeometry(10, 50, 50),
+                new THREE.ShaderMaterial({
+                    uniforms: {
+                        coefficient: {
+                            type: "f",
+                            value: 1.0
+                        },
+                        power: {
+                            type: "f",
+                            value: 2.0
+                        },
+                        glowColor: {
+                            type: "c",
+                            value: node.status === 'red' ? new THREE.Color('#f00') : (node.status ===
+                            'green' ? new THREE.Color('#0f0') : new THREE.Color('#01d8d2'))
+                        }
+                    },
+                    vertexShader: vertexShader,
+                    fragmentShader: fragmentShader,
+                    blending: THREE.NormalBlending,
+                    transparent: true
+                })
             );
-            const bottomSphereMesh = new THREE.Mesh(
-                new THREE.SphereBufferGeometry(10, 50, 50, 0, Math.PI * 2, 0, Math.PI / 180 * 90),   // 满溢情况只需更改最后一个参数，此处是90度
-                material(node, '#A60B1A', '#7CFC00', '#1E83B4', 0.6)
-            )
-            bottomSphereMesh.rotateX(-Math.PI / 180 * 160);  // 下半球体倾斜角度
+            const bottomSphereMesh1 = new THREE.Mesh(
+                new THREE.SphereBufferGeometry(9.8, 50, 50, 0, Math.PI * 2, 0, Math.PI / 180 * node
+                    .overflow), // 满溢情况只需更改最后一个参数
+                material1(node, '#A60B1A', '#7CFC00', '#1E83B4')
+            );
+            bottomSphereMesh1.rotateX(-Math.PI / 180 * 170); // 下半球体倾斜角度
+
+            const bottomSphereMesh2 = new THREE.Mesh(
+                new THREE.SphereBufferGeometry(9.5, 50, 50, 0, Math.PI * 2, 0, Math.PI / 180 * node
+                    .overflow),
+                material2(node)
+            );
+            bottomSphereMesh2.rotateX(-Math.PI / 180 * 170);
 
             // 显示文字
             const sprite = new SpriteText(node.num);
             sprite.color = node.status === 'red' ? '#f00' : '#fff';
             sprite.textHeight = 6;
-            topSphereMesh.add(sprite);
+            bottomSphereMesh1.add(sprite);
 
-            const personGroup = new THREE.Group();
-            return personGroup.add(topSphereMesh, bottomSphereMesh);
+            const group = new THREE.Group()
+            group.add(bottomSphereMesh2, bottomSphereMesh1, haloMesh)
+            // Graph.scene().add(group)
+
+            return group;
         })
         .onNodeClick((node, event) => {
-            console.log(node)
-            console.log(event)
-            dialog.style.display = 'block'
-            dialog.style.position = 'absolute'
-            dialog.style.top = event.y < 150 ? event.y + 40 + 'px' : event.y - 130 + 'px'
-            dialog.style.left = event.x < 300 ? event.x + 'px' : event.x - 300 + 'px'
-            $('.triangle').css({'position':'absolute', 'left':'280px'})
+            dialog.style.display = 'none'
+
+            // 点击节点聚焦到当前节点
+            const distance = 180;
+            const distRatio = 1 + distance / Math.hypot(node.x, node.y, node.z);
+            Graph.cameraPosition({
+                    x: node.x * distRatio,
+                    y: node.y * distRatio,
+                    z: node.z * distRatio
+                },
+                node,
+                3000 // 过渡时间
+            );
+
+            // let coords = Graph.graph2ScreenCoords(node.x, node.y, node.z)  // 3d坐标转为2d坐标
+            // console.log(coords);
+
+            setTimeout(() => {
+                dialog.style.display = 'block'
+                dialog.style.position = 'absolute'
+                if (window.screen.width == 1920) {
+                    dialog.style.top = window.innerHeight / 2 - 180 + 'px'
+                    dialog.style.left = window.innerWidth / 2 - 330 + 'px'
+                }
+                if (window.screen.width >= 1440 && window.screen.width <= 1600) {
+                    dialog.style.top = window.innerHeight / 2 - 150 + 'px'
+                    dialog.style.left = window.innerWidth / 2 - 320 + 'px'
+                }
+                if (window.screen.width <= 1280) {
+                    dialog.style.top = window.innerHeight / 2 - 155 + 'px'
+                    dialog.style.left = window.innerWidth / 2 - 315 + 'px'
+                }
+                $('.triangle').css({
+                    'position': 'absolute',
+                    'left': '300px'
+                })
+            }, 3000)
+
+        })
+        .onNodeHover(node => {
+            if ((!node && !highlightNodes.size) || (node && hoverNode === node)) return;
+            highlightLinks.clear();
+            if (node) {
+                highlightNodes.add(node);
+                node.neighbors.forEach(neighbor => highlightNodes.add(neighbor));
+                node.links.forEach(link => highlightLinks.add(link));
+            }
+            hoverNode = node || null;
+            updateHighlight();
+        })
+        .onLinkHover(link => {
+            highlightNodes.clear();
+            highlightLinks.clear();
+            if (link) {
+                highlightLinks.add(link);
+                highlightNodes.add(link.source);
+                highlightNodes.add(link.target);
+            }
+            updateHighlight();
         })
         .onNodeRightClick((node, event) => {
             dialog.style.display = 'none'
@@ -125,19 +294,51 @@
         .onBackgroundClick(event => {
             dialog.style.display = 'none'
         })
-        .dagMode('radialin')    // 布局径向向内
-        .dagLevelDistance(20)   // 节点距离
+        .dagMode('radialin') // 布局径向向内
+        .dagLevelDistance(15) // 节点距离
 
-    Graph.d3Force('charge').strength(-120);     // 节点之间的距离，数越小距离越大
-    Graph.cameraPosition({x: 0, y: 0, z: 400});     // 相机位置，更改z轴位置即可调整镜头远近距离
+    // 更新高亮的节点和连线
+    function updateHighlight() {
+        Graph.nodeColor(Graph.nodeColor()).linkWidth(Graph.linkWidth())
+            .linkDirectionalParticles(Graph.linkDirectionalParticles());
+    }
+
+    Graph.d3Force('charge').strength(-120); // 节点之间的距离，数越小距离越大
+    Graph.cameraPosition({
+        x: 0,
+        y: 0,
+        z: 400
+    }); // 相机位置，更改z轴位置即可调整镜头远近距离
+
+    // 轨道控制器，在相机进行轨道运动时隐藏弹出框
+    const controls = new THREE.OrbitControls(Graph.camera(), Graph.renderer().domElement);
+    controls.addEventListener('change', event => {
+        dialog.style.display = 'none';
+    })
+    // controls.autoRotate = true
+
+    ;(function animate() {
+        requestAnimationFrame(animate);
+        // controls.update();
+        //     Graph.scene().children.forEach(i => {
+        //     if (i.type === 'Group') {
+        //         i.rotation.x += 0.001
+        //         i.rotation.y += 0.001
+        //     }
+        // })
+        Graph.renderer().render(Graph.scene(), Graph.camera());
+    })()
 
     // 环境光，没有特定方向的光源，能整体均匀改变物体表面的明暗效果
     const ambient = new THREE.AmbientLight(0x696969);
     Graph.scene().add(ambient);
     // 点光源
-    const point = new THREE.PointLight(0xF0F8FF);
+    const point = new THREE.PointLight(0xF8F8FF);
     point.position.set(400, 300, 500); //点光源位置
-    Graph.scene().add(point);
+    // Graph.scene().add(point);
+
+    Graph.renderer().sortObjects = false; // 渲染顺序由添加到场景中的顺序决定
+
 
     // 时间轴
     let timeList = [
@@ -155,7 +356,7 @@
         {name: '22:00', time: '22:00'}
     ];
 
-    let initIndex = 4;  // 设置初始时间索引
+    let initIndex = 4; // 设置初始时间索引
 
     $(function init() {
         let html = '';
@@ -198,16 +399,16 @@
     function timeAxisRoll() {
         let width = 140;
         let firstIndex = initIndex - 1 < 0 ? 0 : initIndex - 1;
-        let roll = -(firstIndex* width);
-        let widthBox = $('.cx-time-box').width();//时间轴宽度盒子总宽度
+        let roll = -(firstIndex * width);
+        let widthBox = $('.cx-time-box').width(); //时间轴宽度盒子总宽度
         let widthBox1 = Math.abs(timeList.length * width); //实际总宽度
-        if(widthBox > widthBox1){
+        if (widthBox > widthBox1) {
             return false;
         }
-        let i = parseInt(widthBox/width);//显示时间轴条数
+        let i = parseInt(widthBox / width); //显示时间轴条数
 
-        if(initIndex + i >= timeList.length){
-            roll =  -((timeList.length - 1 - i) * width);
+        if (initIndex + i >= timeList.length) {
+            roll = -((timeList.length - 1 - i) * width);
         }
 
         $('#cxTime ul li').animate({
@@ -220,11 +421,11 @@
         $('.cx-round-box').removeClass('cx-time-active');
         $('.cx-round-box' + num).addClass('cx-time-active');
         let selectVal = $('.cx-round-box' + num).children('.cx-time-bottom').text()
-        console.log(selectVal)  // 08:00
+        console.log(selectVal) // 08:00
     }
 
     // 给日期选择框赋初值
-    $(function(){
+    $(function () {
         let date = new Date();
         let year = date.getFullYear();
         let month = date.getMonth() + 1;
@@ -237,11 +438,11 @@
     // 监听日期选择框
     $('.date-info').bind('change', () => {
         let datei = $('.date-info').val()
-        console.log(datei)  // 2020-07-31
+        console.log(datei) // 2020-07-31
     })
 
     // 将日期和时间拼凑起来获得最终值，监听这个值去请求ajax获取data就能动态渲染页面。
-
 </script>
 </body>
+
 </html>
